@@ -1,3 +1,4 @@
+
 import logging
 import re
 import os
@@ -110,40 +111,31 @@ def merge_into_chunks(segments, chunk_duration=30):
 
 
 def get_available_transcript(video_id):
-    """
-    Get the best available transcript for a video.
     
-    Priority:
-    1. Any manually created transcript (prefer English if available)
-    2. Any auto-generated transcript (prefer English if available)
-    3. First available transcript of any language
+    # Webshare proxy to bypass Railway IP block
+    proxy_url = "http://cwlplckt:gb615m36qqbd@31.59.20.176:6754/"
     
-    Args:
-        video_id (str): YouTube video ID
-        
-    Returns:
-        tuple: (transcript_data, language_code)
-    """
-    api = YouTubeTranscriptApi()
+    proxies = {
+        "http": proxy_url,
+        "https": proxy_url
+    }
+    
+    api = YouTubeTranscriptApi(proxies=proxies)
     transcript_list = api.list(video_id)
     
-    # First, check for English transcripts (manual then auto)
     try:
         return transcript_list.find_transcript(["en", "en-US"]).fetch(), "en"
     except NoTranscriptFound:
         pass
         
-    # Then check for Hindi transcripts
     try:
         return transcript_list.find_transcript(["hi"]).fetch(), "hi"
     except NoTranscriptFound:
         pass
         
-    # Finally, use any available transcript
     for transcript in transcript_list:
         return transcript.fetch(), transcript.language_code
         
-    # If no transcript found at all
     raise NoTranscriptFound(f"No transcripts found for video {video_id}")
 
 
@@ -270,3 +262,4 @@ if __name__ == "__main__":
         port=port,
         debug=debug
     )
+
