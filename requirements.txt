@@ -1,4 +1,4 @@
 flask
-youtube-transcript-api==0.6.3
+youtube-transcript-api==0.10.0
 flask-cors
 gunicorn
