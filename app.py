@@ -1,5 +1,6 @@
 import logging
 import re
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -21,26 +22,6 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)
-
-
-def format_timestamp(seconds):
-    """
-    Format a time in seconds to HH:MM:SS or MM:SS format.
-    
-    Args:
-        seconds (float): Time in seconds
-        
-    Returns:
-        str: Formatted timestamp string
-    """
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    hours = minutes // 60
-    minutes = minutes % 60
-
-    if hours > 0:
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    return f"{minutes:02d}:{secs:02d}"
 
 
 def clean_transcript_text(text):
@@ -80,11 +61,11 @@ def merge_into_chunks(segments, chunk_duration=30):
     Merge transcript segments into chunks of specified duration.
     
     Args:
-        segments (list): List of transcript segments with 'text', 'start', 'duration'
-        chunk_duration (int): Target chunk duration in seconds (default: 30)
+        segments (list): List of transcript segments from youtube-transcript-api
+        chunk_duration (int): Target duration for each chunk in seconds (default: 30)
         
     Returns:
-        list: List of chunk dictionaries with start, end, timestamp, text
+        list: List of merged chunks with start, end, timestamp, and text
     """
     chunks = []
     current_chunk = None
@@ -101,6 +82,13 @@ def merge_into_chunks(segments, chunk_duration=30):
         chunk_start = int(segment["start"] // chunk_duration) * chunk_duration
         chunk_end = chunk_start + chunk_duration
         
+        # Format timestamp as MM:SS-MM:SS
+        def _format_ts(secs):
+            m = secs // 60
+            s = secs % 60
+            return f"{m:02d}:{s:02d}"
+        timestamp = f"{_format_ts(chunk_start)}-{_format_ts(chunk_end)}"
+        
         # Create new chunk or append to existing
         if current_chunk is None or current_chunk["start"] != chunk_start:
             if current_chunk is not None:
@@ -108,7 +96,7 @@ def merge_into_chunks(segments, chunk_duration=30):
             current_chunk = {
                 "start": chunk_start,
                 "end": chunk_end,
-                "timestamp": f"{format_timestamp(chunk_start)}-{format_timestamp(chunk_end)}",
+                "timestamp": timestamp,
                 "text": cleaned_text
             }
         else:
@@ -136,7 +124,8 @@ def get_available_transcript(video_id):
     Returns:
         tuple: (transcript_data, language_code)
     """
-    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+    api = YouTubeTranscriptApi()
+    transcript_list = api.list(video_id)
     
     # First, check for English transcripts (manual then auto)
     try:
@@ -160,9 +149,7 @@ def get_available_transcript(video_id):
 
 @app.route("/", methods=["GET"])
 def home():
-    """
-    Home endpoint - provides API usage information.
-    """
+    """Home endpoint with API usage information."""
     return jsonify({
         "success": True,
         "message": "YouTube Transcript API",
@@ -176,9 +163,7 @@ def home():
 
 @app.route("/health", methods=["GET"])
 def health():
-    """
-    Health check endpoint - used to verify server is operational.
-    """
+    """Health check endpoint to verify server is operational."""
     logger.info("Health check requested")
     return jsonify({
         "success": True,
@@ -212,6 +197,7 @@ def transcript():
     try:
         # Get best available transcript
         fetched, language = get_available_transcript(video_id)
+        logger.info(f"Retrieved transcript in language: {language}")
         
         # Convert to list of dicts for processing
         segments = []
@@ -221,10 +207,9 @@ def transcript():
                 "start": item.start,
                 "duration": item.duration
             })
-            
+        
         # Merge into 30-second chunks
         chunks = merge_into_chunks(segments)
-        
         logger.info(f"Successfully processed {len(chunks)} chunks for video {video_id}")
         
         return jsonify({
@@ -254,19 +239,21 @@ def transcript():
             "error": "No transcript available for this video"
         }), 404
     except RequestBlocked:
-        logger.error(f"Request blocked (rate limit) for video: {video_id}")
+        logger.error(f"Request blocked (rate limit/IP ban) for video: {video_id}")
         return jsonify({
             "success": False,
             "error": "Request blocked. Please try again later or use a different IP."
         }), 429
     except CouldNotRetrieveTranscript as e:
-        logger.error(f"Network error retrieving transcript: {str(e)}")
+        logger.error(f"Could not retrieve transcript: {str(e)}")
         return jsonify({
             "success": False,
-            "error": "Network error. Please check your connection and try again."
+            "error": "Could not retrieve transcript. Please check your connection and try again."
         }), 503
     except Exception as e:
-        logger.error(f"Unexpected error processing transcript: {str(e)}", exc_info=True)
+        import traceback
+        traceback_str = traceback.format_exc()
+        logger.error(f"Unexpected error processing transcript: {str(e)}\n{traceback_str}")
         return jsonify({
             "success": False,
             "error": "An unexpected error occurred"
@@ -274,8 +261,7 @@ def transcript():
 
 
 if __name__ == "__main__":
-    # Get port from environment variable for Railway deployment
-    import os
+    # Get port from environment variable for Railway deployment, use 5000 as default
     port = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("DEBUG", "False").lower() == "true"
     
