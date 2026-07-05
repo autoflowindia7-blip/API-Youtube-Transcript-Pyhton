@@ -111,9 +111,7 @@ def merge_into_chunks(segments, chunk_duration=30):
 
 
 def get_available_transcript(video_id):
-    import urllib.request
     
-    # Webshare proxy
     proxy_ip = "31.59.20.176"
     proxy_port = "6754"
     proxy_user = "cwlplckt"
@@ -121,17 +119,19 @@ def get_available_transcript(video_id):
     
     proxy_url = f"http://{proxy_user}:{proxy_pass}@{proxy_ip}:{proxy_port}"
     
-    # Create proxy handler
-    proxy_handler = urllib.request.ProxyHandler({
+    proxies = {
         "http": proxy_url,
         "https": proxy_url
-    })
+    }
     
-    opener = urllib.request.build_opener(proxy_handler)
-    urllib.request.install_opener(opener)
-    
-    # Now fetch transcript
-    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+    try:
+        transcript_list = YouTubeTranscriptApi.list_transcripts(
+            video_id,
+            proxies=proxies
+        )
+    except Exception:
+        # Try without proxy as fallback
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
     
     try:
         return transcript_list.find_transcript(["en", "en-US"]).fetch(), "en"
