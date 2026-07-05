@@ -112,12 +112,7 @@ def merge_into_chunks(segments, chunk_duration=30):
 
 def get_available_transcript(video_id):
     
-    proxy_ip = "31.59.20.176"
-    proxy_port = "6754"
-    proxy_user = "cwlplckt"
-    proxy_pass = "gb615m36qqbd"
-    
-    proxy_url = f"http://{proxy_user}:{proxy_pass}@{proxy_ip}:{proxy_port}"
+    proxy_url = "http://cwlplckt:gb615m36qqbd@31.59.20.176:6754"
     
     proxies = {
         "http": proxy_url,
@@ -125,29 +120,35 @@ def get_available_transcript(video_id):
     }
     
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(
-            video_id,
-            proxies=proxies
-        )
-    except Exception:
+        # Version 1.2.4 syntax
+        ytt_api = YouTubeTranscriptApi(proxies=proxies)
+        transcript_list = ytt_api.list(video_id)
+        
+        try:
+            transcript = transcript_list.find_transcript(["en", "en-US"])
+            return transcript.fetch(), "en"
+        except NoTranscriptFound:
+            pass
+            
+        try:
+            transcript = transcript_list.find_transcript(["hi"])
+            return transcript.fetch(), "hi"
+        except NoTranscriptFound:
+            pass
+            
+        for transcript in transcript_list:
+            return transcript.fetch(), transcript.language_code
+            
+    except Exception as e:
         # Try without proxy as fallback
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        logger.warning(f"Proxy failed, trying without proxy: {str(e)}")
+        ytt_api = YouTubeTranscriptApi()
+        transcript_list = ytt_api.list(video_id)
+        
+        for transcript in transcript_list:
+            return transcript.fetch(), transcript.language_code
     
-    try:
-        return transcript_list.find_transcript(["en", "en-US"]).fetch(), "en"
-    except NoTranscriptFound:
-        pass
-        
-    try:
-        return transcript_list.find_transcript(["hi"]).fetch(), "hi"
-    except NoTranscriptFound:
-        pass
-        
-    for transcript in transcript_list:
-        return transcript.fetch(), transcript.language_code
-        
     raise NoTranscriptFound(f"No transcripts found for video {video_id}")
-
 
 @app.route("/", methods=["GET"])
 def home():
